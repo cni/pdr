@@ -1,0 +1,1 @@
+Program(['ue9stream.c', 'ue9.c'], LIBS=['m'])
