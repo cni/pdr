@@ -1,16 +1,17 @@
-function [data,fields,header,calMat,markers] = eyeLoad(filename)
+function [data,fields,markers,cal,header] = eyeLoad(filename)
 %
 %
-% [data,fields,header,calMat,markers] = eyeLoad('eyeCal_20111212_122417.csv');
+% [data,fields,markers,cal] = eyeLoad('/scratch/fMRI/phillips/s4/eye/eyeCal_20111212_122417.csv');
 % data(strcmpi('NONE',markers),:) = []; markers(strcmpi('NONE',markers)) = [];
-% gaze = [data(:,3:4) ones(size(data,1),1)]*calMat;
-% gaze = gaze(:,1:2); gaze(gaze>1)=1; gaze(gaze<-1)=-1;
+% gaze = eyeComputeGaze(data(:,3:4), cal);
+% gaze(gaze>0.8)=NaN; gaze(gaze<-0.8)=NaN;
 % figure(1);axis([-1,1,-1,1]); hold on;
-% for(ii=1:size(gaze,1)), if(data(ii,8)>0.5), c='r'; else, c='y'; end; plot(gaze(ii,1),gaze(ii,2),[c '.']); title(markers{ii}); pause(0.1); end
+% for(ii=1:size(gaze,1)), c='r'; plot(gaze(ii,1),gaze(ii,2),[c '.']); title(markers{ii}); pause(0.05); end
 %
-% [data,fields] = eyeLoad('litAttn_20111212_123024.csv');
-%
-%
+% [data,fields,markers] = eyeLoad('/scratch/fMRI/phillips/s4/eye/litAttn_20111212_123024.csv');
+% gaze = eyeComputeGaze(data(strcmpi('start0',markers),3:4), cal);
+% gaze(abs(gaze(:,1))>0.8|abs(gaze(:,2))>0.8|isnan(gaze(:,1))|isnan(gaze(:,2)),:)=NaN;
+% figure(2);axis([-1,1,-1,1]); plot(gaze(500:1000,1),gaze(500:1000,2),'r-');
 %
 %
 %
@@ -69,10 +70,24 @@ if(~isempty(calData))
         fprintf('Rejecting %d out of %d points for coord (%d,%d).\n',sum(bad),numel(bad),calPts(ii,:));
         eyePts(ii,:) = mean(allEyePts(~bad,:));
     end
-    calMat = pinv([eyePts ones(size(eyePts,1),1)])*[calPts ones(size(calPts,1),1)];
+    % Biquadratic mapping function with a piece-wise correction factor, introduce by
+    % Sheena and Borah (1981), as described in D. Stampe (1993). Heuristic filtering
+    % and reliable calibration methods for video-based pupil-tracking systems. B R M, I & C.
+    corner = [1 3 7 9];
+    center = [2 4 5 6 8];
+    % Compute the bi-quadratic calibration matrix for all cal points except the four corners.
+    cal.mat = pinv([eyePts(center,:) eyePts(center,:).^2 ones(numel(center),1)])*[calPts(center,:) ones(numel(center),1)];
+    estCalPts = [eyePts(corner,:) eyePts(corner,:).^2 ones(numel(corner),1)]*cal.mat;
+    estCalPts = estCalPts(:,1:2);
+    % Use the four corners to compute the quadrant
+    cal.quadScale = (calPts(corner,:)-estCalPts) ./ repmat(estCalPts(:,1).*estCalPts(:,2),1,2);
+    cal.quadSign = sign(calPts(corner,:));
+    estCalPts = eyeComputeGaze(eyePts, cal);
+    [calPts estCalPts]
 
-    calPts
+    calMat = pinv([eyePts ones(size(eyePts,1),1)])*[calPts ones(size(calPts,1),1)];
     estCalPts = [eyePts ones(size(eyePts,1),1)]*calMat;
-    estCalPts(:,1:2)
+    [calPts estCalPts(:,1:2)]
+
 end
 return;
