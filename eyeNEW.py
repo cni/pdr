@@ -117,13 +117,13 @@ class EyeTrackReceiver:
             except:
                 self.logMessage('Invalid JSON: "'+s+'".')
                 d = None
-            if d!=None and d.has_key('dev') and d['dev']=='eye' and d.has_key('cmd'):
+            if d!=None and d.has_key('cmd'):
                 cmd = d['cmd']
                 if cmd == 'start':
                     if d.has_key('dur'):
                         duration = d['dur']
                     else:
-                        duration = 7200
+                        duration = 3600
                     ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
                     if d.has_key('file'):
                         fileName = self.dataDir+d['file']+'_'+ts+'.csv'

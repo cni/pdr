@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+killall ffmpeg
+killall ue9stream
+killall python
+

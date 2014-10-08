@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+TIMESTAMP=`date +%y%m%d_%H%M%S`
+
+#ffmpeg -f video4linux2 -i /dev/video0 -t $1 -vcodec libx264 -vpre hq -an -threads 0 /home/cni/video/subvid_${TIMESTAMP}.mp4 &
+
+eye.py /home/cni/eye/eye_${TIMESTAMP}.csv $1 &
+
+#startScan
+
+
+
+
