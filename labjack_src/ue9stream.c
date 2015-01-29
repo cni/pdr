@@ -13,7 +13,6 @@ const int settlingTime = 0;
 const int streamClockFreq = 4e6;
 int sampRate = 1000;
 uint16 scanInterval = 0;
-uint8 NumChannels = 4;        // NumChannels needs to be 1, 2, 4, 8 or 16
 int ALIVE = 1;
 
 int StreamConfig(int socketFD);
@@ -46,8 +45,6 @@ int main(int argc, char **argv)
     if(argc > 2)
         sampRate = (int)atol(argv[2]);
     if(argc > 3)
-        NumChannels = (uint8)atol(argv[3]);
-    if(argc > 4)
     {
         printf("Too many arguments.\nPlease enter only an ip address, sample rate (10 - 1000 Hz), and number of channels (1-4).\n");
         exit(0);
@@ -60,12 +57,6 @@ int main(int argc, char **argv)
     // ScanInterval: (1-65535) This value divided by the clock frequency
     // gives the interval (in seconds) between scans.
     scanInterval = (uint16)(streamClockFreq/sampRate);
-    //if(NumChannels>4)
-    //    NumChannels = 4;
-    //else if(NumChannels<1)
-    //    NumChannels = 1;
-    //else if(NumChannels==3)
-    //    NumChannels = 4;
     if( (socketFDA = openTCPConnection(ipAddress, ue9_portA)) < 0)
         goto exit;
 
@@ -109,8 +100,6 @@ int main(int argc, char **argv)
     printf("sample rate [Hz]:       %d\n", sampRate);
     printf("scan interval [ms]:     %d\n", scanInterval);
     printf("********************************************************************************\n");
-    printf("\n\n");
-
 
     StreamData(socketFDA, socketFDB, &caliInfo);
     StreamStop(socketFDA, 1);
@@ -125,7 +114,7 @@ exit:
 }
 
 //Sends a StreamConfig low-level command to configure the stream to read
-//NumChannels analog inputs.
+//two analog inputs.
 int StreamConfig(int socketFD)
 {
     int sendBuffSize;
@@ -134,34 +123,32 @@ int StreamConfig(int socketFD)
     int sendChars, recChars, i, ret;
     uint16 checksumTotal;
 
-    sendBuffSize = 12 + 2*NumChannels;
+    sendBuffSize = 16; // 12 + 2*num channels (2) = 16
     sendBuff = malloc(sizeof(uint8)*sendBuffSize);
     ret = 0;
 
     sendBuff[1] = (uint8)(0xF8);      //command byte
-    sendBuff[2] = NumChannels + 3;    //number of data words : NumChannels + 3
+    sendBuff[2] = 5;    //number of data words : NumChannels + 3
     sendBuff[3] = (uint8)(0x11);      //extended command number
-    sendBuff[6] = (uint8)NumChannels; //NumChannels
+    sendBuff[6] = (uint8)2; //NumChannels
     sendBuff[7] = ainResolution;      //resolution
-    sendBuff[8] = settlingTime;       //SettlingTime = 0
+    sendBuff[8] = settlingTime;       //SettlingTime = 0 for auto
     sendBuff[9] = 0;                  //ScanConfig: scan pulse and external scan trigger disabled, stream clock frequency = 4 MHz
 
     sendBuff[10] = (uint8)(scanInterval & 0x00FF); //scan interval (low byte)
     sendBuff[11] = (uint8)(scanInterval / 256);	   //scan interval (high byte)
 
-    for(i = 0; i < NumChannels; i++){
-        sendBuff[12 + i*2] = i; //channel # = i
-        if(i<NumChannels/2)
-            sendBuff[13 + i*2] = 0; //BipGain (0 for unipolar, Gain = 1; 8 for bipolar gain = 1)
-        else
-            sendBuff[13 + i*2] = 8; //BipGain (0 for unipolar, Gain = 1; 8 for bipolar gain = 1)
-    }
+    // Configure the two AIN channels; ain0 is [0v,5v] unipolar, ain1 is [-5v,5v] bipolar
+    sendBuff[12] = 0; //channel #0
+    sendBuff[13] = 0; //BipGain (0 for unipolar, Gain = 1; 8 for bipolar gain = 1)
+    sendBuff[14] = 1; //channel #1
+    sendBuff[15] = 8; //BipGain (0 for unipolar, Gain = 1; 8 for bipolar gain = 1)
 
     extendedChecksum(sendBuff, sendBuffSize);
 
     //Sending command to UE9
     sendChars = send(socketFD, sendBuff, sendBuffSize, 0);
-    if(sendChars < 20)
+    if(sendChars < sendBuffSize)
     {
         if(sendChars == -1)
             printf("Error : send failed (StreamConfig)\n");
@@ -393,22 +380,19 @@ int StreamData(int socketFDA, int socketFDB, ue9CalibrationInfo *caliInfo)
             // 42-43 Sample15
             // 44    ControlBacklog
             // 45    CommBacklog
-            int offset = 12; // Offset to current ADC value
-            int numReadsPerScan = 16/NumChannels;
+            int numReadsPerScan = 8; // 16/num channels
             for(i=0; i<numReadsPerScan; i++)
             {
-                printf("%10ld, ", curScanNum*numReadsPerScan+i);
-                for(k=0; k<NumChannels; k++)
-                {
-                    double voltage;
-                    voltageBytes = (uint16)recBuff[m*46 + offset] + (uint16)recBuff[m*46 + offset+1] * 256;
-                    if(k<NumChannels/2)
-                        binaryToCalibratedAnalogVoltage(caliInfo, (uint8)(0x00), ainResolution, voltageBytes, &voltage);
-                    else
-                        binaryToCalibratedAnalogVoltage(caliInfo, (uint8)(0x08), ainResolution, voltageBytes, &voltage);
-                    printf("%11.8f, %5d,  ", voltage, voltageBytes);
-                    offset+=2;
-                }
+                printf("%ld,", curScanNum*numReadsPerScan+i);
+                double voltage;
+                // AIN0: unipolar mode (arg 2 to binaryToCalibratedAnalogVoltage must match BipGain for this channel, set above)
+                voltageBytes = (uint16)recBuff[m*46+12] + (uint16)recBuff[m*46+13] * 256;
+                binaryToCalibratedAnalogVoltage(caliInfo, (uint8)(0x00), ainResolution, voltageBytes, &voltage);
+                printf("%0.6f,", voltage);
+                // AIN1: bipolar mode (arg 2 to binaryToCalibratedAnalogVoltage must match BipGain for this channel, set above)
+                voltageBytes = (uint16)recBuff[m*46+14] + (uint16)recBuff[m*46+15] * 256;
+                binaryToCalibratedAnalogVoltage(caliInfo, (uint8)(0x08), ainResolution, voltageBytes, &voltage);
+                printf("%0.6f,", voltage);
                 printf("\n");
             }
 
