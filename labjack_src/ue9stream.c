@@ -11,7 +11,8 @@ const int ue9_portB = 52361;
 const int ainResolution = 14;
 const int settlingTime = 0;
 const int streamClockFreq = 4e6;
-uint16 scanInterval = 4000;
+int sampRate = 1000;
+uint16 scanInterval = 0;
 uint8 NumChannels = 4;        // NumChannels needs to be 1, 2, 4, 8 or 16
 int ALIVE = 1;
 
@@ -30,9 +31,7 @@ void termination_handler(int signum)
 int main(int argc, char **argv)
 {
     long now = getTickCount();
-    int sampRate = 1000;
     int socketFDA, socketFDB;
-    double runDurationSeconds = 0;
     ue9CalibrationInfo caliInfo;
     socketFDA = -1;
     socketFDB = -1;
@@ -49,10 +48,8 @@ int main(int argc, char **argv)
     if(argc > 3)
         NumChannels = (uint8)atol(argv[3]);
     if(argc > 4)
-        runDurationSeconds = atol(argv[4]);
-    if(argc > 5)
     {
-        printf("Too many arguments.\nPlease enter only an ip address, number of channels (1-4), sample rate (10 - 1000 Hz), and run duration (0 - 1e6 seconds, 0=infinity).\n");
+        printf("Too many arguments.\nPlease enter only an ip address, sample rate (10 - 1000 Hz), and number of channels (1-4).\n");
         exit(0);
     }
     if(sampRate > 1000)
@@ -62,7 +59,7 @@ int main(int argc, char **argv)
     // Set the scanInterval
     // ScanInterval: (1-65535) This value divided by the clock frequency
     // gives the interval (in seconds) between scans.
-    scanInterval = streamClockFreq/sampRate;
+    scanInterval = (uint16)(streamClockFreq/sampRate);
     //if(NumChannels>4)
     //    NumChannels = 4;
     //else if(NumChannels<1)
@@ -108,6 +105,9 @@ int main(int argc, char **argv)
     printf("hiResBipolarSlope:      %f\n", caliInfo.hiResBipolarSlope);
     printf("hiResBipolarOffset:     %f\n", caliInfo.hiResBipolarOffset);
     printf("estimated latency [ms]: %ld\n", latency);
+    printf("stream clock freq [Hz]: %d\n", streamClockFreq);
+    printf("sample rate [Hz]:       %d\n", sampRate);
+    printf("scan interval [ms]:     %d\n", scanInterval);
     printf("********************************************************************************\n");
     printf("\n\n");
 
@@ -149,10 +149,12 @@ int StreamConfig(int socketFD)
     sendBuff[10] = (uint8)(scanInterval & 0x00FF); //scan interval (low byte)
     sendBuff[11] = (uint8)(scanInterval / 256);	   //scan interval (high byte)
 
-    for(i = 0; i < NumChannels; i++)
-    {
+    for(i = 0; i < NumChannels; i++){
         sendBuff[12 + i*2] = i; //channel # = i
-        sendBuff[13 + i*2] = 0; //BipGain (Bip = unipolar, Gain = 1)
+        if(i<NumChannels/2)
+            sendBuff[13 + i*2] = 0; //BipGain (0 for unipolar, Gain = 1; 8 for bipolar gain = 1)
+        else
+            sendBuff[13 + i*2] = 8; //BipGain (0 for unipolar, Gain = 1; 8 for bipolar gain = 1)
     }
 
     extendedChecksum(sendBuff, sendBuffSize);
@@ -374,22 +376,22 @@ int StreamData(int socketFDA, int socketFDB, ue9CalibrationInfo *caliInfo)
             // uint32 timeStamp = *(uint32*)(recBuff+m*46+6);
 
             // The data packet structure:
-            // Byte		
-            // 0     Checksum8	
-            // 1     0xF9	
-            // 2     0x14	
-            // 3     0xC0	
-            // 4     Checksum16 (LSB)	
-            // 5     Checksum16 (MSB)	
-            // 6-9   TimeStamp ("Reserved"- seems not to be used yet- it's always zero.)	
-            // 10    PacketCounter	
-            // 11    Errorcode	
-            // 12-13 Sample0	
-            // 14-15 Sample1	
+            // Byte
+            // 0     Checksum8
+            // 1     0xF9
+            // 2     0x14
+            // 3     0xC0
+            // 4     Checksum16 (LSB)
+            // 5     Checksum16 (MSB)
+            // 6-9   TimeStamp ("Reserved"- seems not to be used yet- it's always zero.)
+            // 10    PacketCounter
+            // 11    Errorcode
+            // 12-13 Sample0
+            // 14-15 Sample1
             // ...
-            // 40-41 Sample14	
-            // 42-43 Sample15	
-            // 44    ControlBacklog	
+            // 40-41 Sample14
+            // 42-43 Sample15
+            // 44    ControlBacklog
             // 45    CommBacklog
             int offset = 12; // Offset to current ADC value
             int numReadsPerScan = 16/NumChannels;
@@ -400,7 +402,10 @@ int StreamData(int socketFDA, int socketFDB, ue9CalibrationInfo *caliInfo)
                 {
                     double voltage;
                     voltageBytes = (uint16)recBuff[m*46 + offset] + (uint16)recBuff[m*46 + offset+1] * 256;
-                    binaryToCalibratedAnalogVoltage(caliInfo, (uint8)(0x00), ainResolution, voltageBytes, &voltage);
+                    if(k<NumChannels/2)
+                        binaryToCalibratedAnalogVoltage(caliInfo, (uint8)(0x00), ainResolution, voltageBytes, &voltage);
+                    else
+                        binaryToCalibratedAnalogVoltage(caliInfo, (uint8)(0x08), ainResolution, voltageBytes, &voltage);
                     printf("%11.8f, %5d,  ", voltage, voltageBytes);
                     offset+=2;
                 }
