@@ -24,7 +24,7 @@ class LabjackRunner:
 
     """
 
-    def __init__(self, outfilename, hostname = LABJACK_HOSTNAME, sampRate = 100):
+    def __init__(self, outfilename, hostname=LABJACK_HOSTNAME, sampRate=100):
         self.hostname = hostname
         self.outfile_name = outfilename
         self.outfile_desc = None
@@ -37,7 +37,7 @@ class LabjackRunner:
         timeRef = datetime.now()
         self.outfile_desc.write('%% Start time: %s\n' % str(timeRef))
         self.outfile_desc.flush()
-        self.lj_proc = subprocess.Popen(['ue9stream', self.hostip, str(self.sampleRate)], stdout = self.outfile_desc, cwd = os.getcwd())
+        self.lj_proc = subprocess.Popen(['ue9stream2', self.hostip, str(self.sampleRate)], stdout = self.outfile_desc, cwd = os.getcwd())
         # subprocess.communicate to hang until it finishes
 
     def stop(self):
@@ -60,49 +60,26 @@ signal.signal(signal.SIGTERM, handler)
 if __name__ == "__main__":
 
     if len(sys.argv) > 1:
-        filename = sys.argv[1]+time.strftime('_%Y%m%d_%H%M%S.csv')
+        filename = sys.argv[1]
     else:
-        filename = time.strftime('/data/biopac/biopac_%Y%m%d_%H%M%S.csv')
+        filename = time.strftime('biopac_%Y%m%d_%H%M%S.csv')
 
     if len(sys.argv) > 2:
     	runDuration = float(sys.argv[2])
     else:
         runDuration = 0.0
 
+    if len(sys.argv) > 3:
+    	samp_rate = float(sys.argv[3])
+    else:
+        samp_rate = 1000
+
     if runDuration>0:
         print "Will record to %s for %0.2f seconds." % (filename, runDuration)
     else:
         print "Will record to %s forever (or until you hit ctrl-c)." % filename
 
-    lj = LabjackRunner(filename, LABJACK_HOSTNAME)
-
-    try:
-        ser = serial.Serial(TRIGGER_DEVICE, 115200, timeout=0.1)
-        # Allow time for trigger device to initialize:
-        time.sleep(0.1)
-        # Send a trigger pulse to start scanning
-        #ser.write('[t]\n');
-        # Display the firmware greeting
-        out = ser.readlines()
-        for l in out: print(l),
-        # Send the command to enable input pulses
-        ser.write('[p]\n');
-
-        print "Waiting for trigger..."
-        # Wait for a scan trigger to start (or a ctrl-c)
-        waiting = True
-        while waiting and RUNNING:
-            n = ser.inWaiting()
-            # Wait for a char, or until timeout
-            if n>0:
-                s = ser.read(n)
-                if s[0]=='p':
-                    waiting = False
-            else:
-                time.sleep(0.01)
-        RUNNING = True
-    except:
-        print "No trigger device found."
+    lj = LabjackRunner(filename, LABJACK_HOSTNAME, samp_rate)
 
     print "Starting recording now"
 

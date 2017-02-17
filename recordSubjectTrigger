@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+TIMESTAMP=`date +%y%m%d_%H%M%S`
+
+waitForTrigger.py
+
+biopac1k.py /home/cniuser/Desktop/biopac_data/physio_${TIMESTAMP}.csv $1 &
+
+ffmpeg -f video4linux2 -i /dev/video0 -t $1 -vcodec libx264 /home/cniuser/Desktop/video/subvid_${TIMESTAMP}.mp4 &
+
+
+
+
+

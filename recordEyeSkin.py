@@ -9,11 +9,15 @@ import os
 import time
 import serial
 
+import eye
+
 # Be sure to set this to the correct device! Under linux, it is something
 # like /dev/ttyACM0. On OSX, it will be /dev/ttyUSBNNNN, where NNNN is
 # some cryptic number. On windows, it will be a COM port (e.g., COM4).
 TRIGGER_DEVICE = '/dev/ttyACM0'
 LABJACK_HOSTNAME = '192.168.0.12'
+EYEHOST = 'cnitrack.stanford.edu'
+EYEPORT = 5000
 
 class LabjackRunner:
     """
@@ -24,7 +28,7 @@ class LabjackRunner:
 
     """
 
-    def __init__(self, outfilename, hostname = LABJACK_HOSTNAME, sampRate = 100):
+    def __init__(self, outfilename, hostname=LABJACK_HOSTNAME, sampRate=100):
         self.hostname = hostname
         self.outfile_name = outfilename
         self.outfile_desc = None
@@ -59,22 +63,25 @@ signal.signal(signal.SIGTERM, handler)
 
 if __name__ == "__main__":
 
-    if len(sys.argv) > 1:
-        filename = sys.argv[1]+time.strftime('_%Y%m%d_%H%M%S.csv')
-    else:
-        filename = time.strftime('/data/biopac/biopac_%Y%m%d_%H%M%S.csv')
+    if len(sys.argv) < 2:
+        sys.exit(1)
+
+    runDuration = float(sys.argv[1])
 
     if len(sys.argv) > 2:
-    	runDuration = float(sys.argv[2])
+        biopac_filename = sys.argv[2]+time.strftime('physio_%Y%m%d_%H%M%S.csv')
+        eye_filename = sys.argv[2]+time.strftime('eye_%Y%m%d_%H%M%S.csv')
     else:
-        runDuration = 0.0
+        biopac_filename = '/home/cni/biopac/'+time.strftime('physio_%Y%m%d_%H%M%S.csv')
+        eye_filename = '/home/cni/eye/'+time.strftime('eye_%Y%m%d_%H%M%S.csv')
 
     if runDuration>0:
-        print "Will record to %s for %0.2f seconds." % (filename, runDuration)
+        print "Will record to %s and %s for %0.2f seconds." % (biopac_filename, eye_filename, runDuration)
     else:
         print "Will record to %s forever (or until you hit ctrl-c)." % filename
 
-    lj = LabjackRunner(filename, LABJACK_HOSTNAME)
+    lj = LabjackRunner(biopac_filename, LABJACK_HOSTNAME)
+    et = eye.EyeTrackReceiver(host=EYEHOST, port=EYEPORT)
 
     try:
         ser = serial.Serial(TRIGGER_DEVICE, 115200, timeout=0.1)
@@ -107,14 +114,7 @@ if __name__ == "__main__":
     print "Starting recording now"
 
     lj.start()  # returns immediately
-    startSecs = time.time()
-    while RUNNING:
-        try:
-            time.sleep(0.1)  # a caught signal (like TERM) will abort the sleep
-        except:
-            RUNNING = False
-        if runDuration>0 and time.time()-startSecs>=runDuration:
-            RUNNING = False
+    et.saveDataTimed(eye_filename, runDuration)
     lj.stop()   # halt recording and close the output file
     print "Finished recording."
 

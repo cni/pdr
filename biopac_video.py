@@ -4,16 +4,46 @@ import sys
 import socket
 from datetime import datetime
 import subprocess
+import shlex
 import signal
 import os
 import time
 import serial
+
 
 # Be sure to set this to the correct device! Under linux, it is something
 # like /dev/ttyACM0. On OSX, it will be /dev/ttyUSBNNNN, where NNNN is
 # some cryptic number. On windows, it will be a COM port (e.g., COM4).
 TRIGGER_DEVICE = '/dev/ttyACM0'
 LABJACK_HOSTNAME = '192.168.0.12'
+FFMPEG = 'ffmpeg -f video4linux2 -i /dev/video0 -t %d -vcodec libx264 %s'
+
+class FfmpegRunner:
+    """
+    ff = FfmpegRunner(outfilename)
+    ff.start()  # returns immediately
+    # wait a while, then...
+    ff.stop()   # halt recording and close the output file
+    """
+    def __init__(self, outfilename, duration):
+        self.outfile_name = outfilename
+        self.outfile_desc = None
+        self.proc = None
+        self.duration = duration
+
+    def start(self):
+        self.outfile_desc = open('/tmp/biopac_video.log','w')
+        self.ff_proc = subprocess.Popen(shlex.split(FFMPEG % (self.duration, self.outfile_name)), stdout=self.outfile_desc, cwd=os.getcwd())
+        # subprocess.communicate to hang until it finishes
+
+    def stop(self):
+        if self.proc != None:
+            self.proc.terminate()
+            self.proc = None
+        # close the log file
+        if self.outfile_desc != None:
+            self.outfile_desc.close()
+            self.outfile_desc = None
 
 class LabjackRunner:
     """
@@ -21,15 +51,13 @@ class LabjackRunner:
     lj.start()  # returns immediately
     # wait a while, then...
     lj.stop()   # halt recording and close the output file
-
     """
-
-    def __init__(self, outfilename, hostname = LABJACK_HOSTNAME, sampRate = 100):
+    def __init__(self, outfilename, hostname=LABJACK_HOSTNAME, sampRate=100):
         self.hostname = hostname
         self.outfile_name = outfilename
         self.outfile_desc = None
         self.hostip = socket.gethostbyname(self.hostname)
-        self.lj_proc = None
+        self.proc = None
         self.sampleRate = sampRate
 
     def start(self):
@@ -37,15 +65,17 @@ class LabjackRunner:
         timeRef = datetime.now()
         self.outfile_desc.write('%% Start time: %s\n' % str(timeRef))
         self.outfile_desc.flush()
-        self.lj_proc = subprocess.Popen(['ue9stream', self.hostip, str(self.sampleRate)], stdout = self.outfile_desc, cwd = os.getcwd())
+        self.proc = subprocess.Popen(['ue9stream', self.hostip, str(self.sampleRate)], stdout=self.outfile_desc, cwd=os.getcwd())
         # subprocess.communicate to hang until it finishes
 
     def stop(self):
-        self.lj_proc.terminate()
-        self.lj_proc = None
+        if self.proc != None:
+            self.proc.terminate()
+            self.proc = None
         # flush stdout
-        self.outfile_desc.close()
-        self.outfile_desc = None
+        if self.outfile_desc != None:
+            self.outfile_desc.close()
+            self.outfile_desc = None
 
 RUNNING = True
 
@@ -56,35 +86,15 @@ def handler(signum, frame):
 # Set the signal handler to allow clean exit with a TERM signal
 signal.signal(signal.SIGTERM, handler)
 
-
 if __name__ == "__main__":
-
-    if len(sys.argv) > 1:
-        filename = sys.argv[1]+time.strftime('_%Y%m%d_%H%M%S.csv')
-    else:
-        filename = time.strftime('/data/biopac/biopac_%Y%m%d_%H%M%S.csv')
-
-    if len(sys.argv) > 2:
-    	runDuration = float(sys.argv[2])
-    else:
-        runDuration = 0.0
-
-    if runDuration>0:
-        print "Will record to %s for %0.2f seconds." % (filename, runDuration)
-    else:
-        print "Will record to %s forever (or until you hit ctrl-c)." % filename
-
-    lj = LabjackRunner(filename, LABJACK_HOSTNAME)
-
+    runDuration = float(sys.argv[1])
     try:
         ser = serial.Serial(TRIGGER_DEVICE, 115200, timeout=0.1)
         # Allow time for trigger device to initialize:
         time.sleep(0.1)
         # Send a trigger pulse to start scanning
         #ser.write('[t]\n');
-        # Display the firmware greeting
         out = ser.readlines()
-        for l in out: print(l),
         # Send the command to enable input pulses
         ser.write('[p]\n');
 
@@ -100,13 +110,20 @@ if __name__ == "__main__":
                     waiting = False
             else:
                 time.sleep(0.01)
-        RUNNING = True
     except:
-        print "No trigger device found."
+        print('skipping trigger.')
+    RUNNING = True
 
-    print "Starting recording now"
+    ts = time.strftime('%Y%m%d_%H%M%S')
+    lj_fname = '/home/cni/biopac/physio_' + ts + '.csv'
+    ff_fname = '/home/cni/video/subvid_' + ts + '.mp4'
 
+    print "Recording to %s and %s for %0.2f minutes..." % (lj_fname, ff_fname, runDuration/60.)
+
+    lj = LabjackRunner(lj_fname, LABJACK_HOSTNAME)
+    ff = FfmpegRunner(ff_fname, runDuration)
     lj.start()  # returns immediately
+    ff.start()  # returns immediately
     startSecs = time.time()
     while RUNNING:
         try:
@@ -116,6 +133,7 @@ if __name__ == "__main__":
         if runDuration>0 and time.time()-startSecs>=runDuration:
             RUNNING = False
     lj.stop()   # halt recording and close the output file
+    ff.stop()   # halt recording and close the output file
     print "Finished recording."
 
 

@@ -24,7 +24,7 @@ class LabjackRunner:
 
     """
 
-    def __init__(self, outfilename, hostname = LABJACK_HOSTNAME, sampRate = 100):
+    def __init__(self, outfilename, hostname=LABJACK_HOSTNAME, sampRate=100):
         self.hostname = hostname
         self.outfile_name = outfilename
         self.outfile_desc = None
@@ -37,7 +37,7 @@ class LabjackRunner:
         timeRef = datetime.now()
         self.outfile_desc.write('%% Start time: %s\n' % str(timeRef))
         self.outfile_desc.flush()
-        self.lj_proc = subprocess.Popen(['ue9stream', self.hostip, str(self.sampleRate)], stdout = self.outfile_desc, cwd = os.getcwd())
+        self.lj_proc = subprocess.Popen(['ue9stream2', self.hostip, str(self.sampleRate)], stdout = self.outfile_desc, cwd = os.getcwd())
         # subprocess.communicate to hang until it finishes
 
     def stop(self):
@@ -74,7 +74,7 @@ if __name__ == "__main__":
     else:
         print "Will record to %s forever (or until you hit ctrl-c)." % filename
 
-    lj = LabjackRunner(filename, LABJACK_HOSTNAME)
+    lj = LabjackRunner(filename, hostname=LABJACK_HOSTNAME, sampRate=1000)
 
     try:
         ser = serial.Serial(TRIGGER_DEVICE, 115200, timeout=0.1)

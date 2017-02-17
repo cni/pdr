@@ -2,11 +2,10 @@
 
 TIMESTAMP=`date +%y%m%d_%H%M%S`
 
-biopac.py /home/cni/biopac/physio_${TIMESTAMP}.csv $1 20 &
+waitForTrigger.py
 
 ffmpeg -f video4linux2 -i /dev/video0 -t $1 -vcodec libx264 /home/cni/video/subvid_${TIMESTAMP}.mp4 &
 
-startScan
 
 
 
